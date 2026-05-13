@@ -1,0 +1,34 @@
+name: Bug report
+description: Something is broken
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: ccguard version
+      placeholder: "v0.1.0 or commit hash"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / kernel
+      placeholder: "WSL2 Ubuntu 22.04, kernel 5.15.x"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. ccguard init
+        2. ...
+        3. observed: ...
+        4. expected: ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (with `--json` if possible)
+      render: shell
