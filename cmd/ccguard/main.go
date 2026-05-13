@@ -40,6 +40,7 @@ baseline anomaly detection, IOC matching, and behavioral monitoring.`,
 		newWatchCmd(),
 		newApproveCmd(),
 		newStatusCmd(),
+		newIOCCmd(),
 		newVersionCmd(),
 	)
 
