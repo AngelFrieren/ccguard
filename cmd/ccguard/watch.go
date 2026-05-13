@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/AngelFrieren/ccguard/internal/alert"
+	"github.com/AngelFrieren/ccguard/internal/baseline"
 	"github.com/AngelFrieren/ccguard/internal/hashwatch"
 	"github.com/AngelFrieren/ccguard/internal/ioc"
 	"github.com/AngelFrieren/ccguard/internal/storage"
@@ -59,6 +60,22 @@ Press Ctrl+C to stop.`,
 				sink.Info("IOC database loaded", map[string]any{"count": iocDB.Len(), "dir": cfg.IOCDir})
 			}
 
+			// Phase 3: baseline anomaly detector (Layer 2).
+			// Refresh stats for any executions recorded by hook-wrap while watch
+			// was stopped (Mode B catch-up).
+			det := baseline.NewDetector(store, sink, baseline.Config{
+				MinSamples: cfg.Baseline.MinSamples,
+				Window:     cfg.Baseline.Window,
+				WarnZ:      cfg.Baseline.WarnZ,
+				AlertZ:     cfg.Baseline.AlertZ,
+				Cooldown:   cfg.Baseline.Cooldown,
+			})
+			if err := det.RefreshAllStats(); err != nil {
+				sink.Warn("baseline refresh failed", map[string]any{"error": err.Error()})
+			} else if hooks, _ := store.DistinctHookNames(); len(hooks) > 0 {
+				sink.Info("baseline stats refreshed", map[string]any{"hooks": len(hooks)})
+			}
+
 			watcher, err := hashwatch.NewWatcher(cfg.WatchPaths, store, sink, iocDB)
 			if err != nil {
 				return fmt.Errorf("new watcher: %w", err)
@@ -67,6 +84,12 @@ Press Ctrl+C to stop.`,
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
+
+			// Mode A: tail Claude Code hook log files if a log directory is configured.
+			if cfg.Baseline.LogDir != "" {
+				lt := baseline.NewLogTailer(cfg.Baseline.LogDir, det, sink, nil)
+				go lt.Run(ctx)
+			}
 
 			sink.Info("ccguard watch started", map[string]any{
 				"paths": cfg.WatchPaths,
