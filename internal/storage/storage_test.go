@@ -197,6 +197,76 @@ func TestUpsertAndGetBaselineStats(t *testing.T) {
 	}
 }
 
+// --- Phase 4 tests ---
+
+func TestBehaviorEventRoundtrip(t *testing.T) {
+	s := newTestStore(t)
+	ev := BehaviorEvent{
+		Ts:       1700000000,
+		Backend:  "procfs",
+		Pid:      1234,
+		Ppid:     1000,
+		Syscall:  "execve",
+		ArgsJSON: `["/usr/bin/curl","https://example.com"]`,
+		PolicyID: "CCG-POLICY-0001",
+		Severity: "high",
+	}
+	if err := s.RecordBehaviorEvent(ev); err != nil {
+		t.Fatalf("RecordBehaviorEvent: %v", err)
+	}
+	rows, err := s.RecentBehaviorEvents(1)
+	if err != nil {
+		t.Fatalf("RecentBehaviorEvents: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	r := rows[0]
+	if r.Backend != "procfs" || r.Pid != 1234 || r.PolicyID != "CCG-POLICY-0001" {
+		t.Errorf("roundtrip mismatch: %+v", r)
+	}
+}
+
+func TestBatchRecordBehaviorEvents(t *testing.T) {
+	s := newTestStore(t)
+	evs := make([]BehaviorEvent, 10)
+	for i := range evs {
+		evs[i] = BehaviorEvent{
+			Ts:       int64(1700000000 + i),
+			Backend:  "procfs",
+			Pid:      1000 + i,
+			Ppid:     999,
+			Syscall:  "execve",
+			ArgsJSON: `[]`,
+		}
+	}
+	if err := s.BatchRecordBehaviorEvents(evs); err != nil {
+		t.Fatalf("BatchRecordBehaviorEvents: %v", err)
+	}
+	n, err := s.CountBehaviorEventsSince(1700000000)
+	if err != nil {
+		t.Fatalf("CountBehaviorEventsSince: %v", err)
+	}
+	if n != 10 {
+		t.Errorf("expected 10 events, got %d", n)
+	}
+}
+
+func TestCountBehaviorEventsSince(t *testing.T) {
+	s := newTestStore(t)
+	_ = s.RecordBehaviorEvent(BehaviorEvent{Ts: 100, Backend: "procfs", Syscall: "execve", ArgsJSON: "[]"})
+	_ = s.RecordBehaviorEvent(BehaviorEvent{Ts: 200, Backend: "procfs", Syscall: "execve", ArgsJSON: "[]"})
+	_ = s.RecordBehaviorEvent(BehaviorEvent{Ts: 300, Backend: "procfs", Syscall: "execve", ArgsJSON: "[]"})
+
+	n, err := s.CountBehaviorEventsSince(200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 events since ts=200, got %d", n)
+	}
+}
+
 func TestDeleteBaselineAndExecutions(t *testing.T) {
 	s := newTestStore(t)
 	_ = s.UpsertBaselineStats("A", 10, 50.0, 5.0)

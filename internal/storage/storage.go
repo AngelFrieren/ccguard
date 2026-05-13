@@ -116,6 +116,28 @@ func (s *Store) Migrate() error {
 			return fmt.Errorf("migrate phase3 (%s...): %w", q[:min(len(q), 40)], err)
 		}
 	}
+
+	// Phase 4: behavioral monitoring tables.
+	phase4 := []string{
+		`CREATE TABLE IF NOT EXISTS behavior_events (
+			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			ts        INTEGER NOT NULL,
+			backend   TEXT NOT NULL,
+			pid       INTEGER NOT NULL,
+			ppid      INTEGER NOT NULL,
+			syscall   TEXT NOT NULL,
+			args_json TEXT NOT NULL,
+			policy_id TEXT NOT NULL DEFAULT '',
+			severity  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS behavior_events_ts_idx ON behavior_events(ts)`,
+		`CREATE INDEX IF NOT EXISTS behavior_events_pid_idx ON behavior_events(pid)`,
+	}
+	for _, q := range phase4 {
+		if _, err := s.db.Exec(q); err != nil {
+			return fmt.Errorf("migrate phase4 (%s...): %w", q[:min(len(q), 40)], err)
+		}
+	}
 	return nil
 }
 
@@ -361,6 +383,94 @@ func (s *Store) DeleteExecutions(hookName string) error {
 func (s *Store) DeleteAllExecutions() error {
 	_, err := s.db.Exec(`DELETE FROM hook_executions`)
 	return err
+}
+
+// --- Phase 4: behavioral monitoring ---
+
+// BehaviorEvent is a single behavioral observation from a Phase 4 backend.
+type BehaviorEvent struct {
+	ID       int64
+	Ts       int64  // unix seconds
+	Backend  string // procfs | auditd | ebpf
+	Pid      int
+	Ppid     int
+	Syscall  string
+	ArgsJSON string // JSON array of argument strings
+	PolicyID string
+	Severity string
+}
+
+// RecordBehaviorEvent appends one behavioral observation to the audit log.
+func (s *Store) RecordBehaviorEvent(ev BehaviorEvent) error {
+	_, err := s.db.Exec(
+		`INSERT INTO behavior_events(ts,backend,pid,ppid,syscall,args_json,policy_id,severity)
+		 VALUES(?,?,?,?,?,?,?,?)`,
+		ev.Ts, ev.Backend, ev.Pid, ev.Ppid, ev.Syscall, ev.ArgsJSON, ev.PolicyID, ev.Severity,
+	)
+	return err
+}
+
+// BatchRecordBehaviorEvents writes multiple events in a single transaction.
+// Callers should batch 100 ms worth of events (or 100 events) before calling
+// this to reduce write amplification on the SQLite database.
+func (s *Store) BatchRecordBehaviorEvents(evs []BehaviorEvent) error {
+	if len(evs) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(
+		`INSERT INTO behavior_events(ts,backend,pid,ppid,syscall,args_json,policy_id,severity)
+		 VALUES(?,?,?,?,?,?,?,?)`,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, ev := range evs {
+		if _, err := stmt.Exec(ev.Ts, ev.Backend, ev.Pid, ev.Ppid, ev.Syscall,
+			ev.ArgsJSON, ev.PolicyID, ev.Severity); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// RecentBehaviorEvents returns the most recent limit behavioral events, newest first.
+func (s *Store) RecentBehaviorEvents(limit int) ([]BehaviorEvent, error) {
+	rows, err := s.db.Query(
+		`SELECT id,ts,backend,pid,ppid,syscall,args_json,policy_id,severity
+		 FROM behavior_events ORDER BY id DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBehaviorEvents(rows)
+}
+
+// CountBehaviorEventsSince returns the count of behavior events with ts >= since.
+func (s *Store) CountBehaviorEventsSince(since int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(1) FROM behavior_events WHERE ts >= ?`, since).Scan(&n)
+	return n, err
+}
+
+func scanBehaviorEvents(rows *sql.Rows) ([]BehaviorEvent, error) {
+	var out []BehaviorEvent
+	for rows.Next() {
+		var e BehaviorEvent
+		if err := rows.Scan(&e.ID, &e.Ts, &e.Backend, &e.Pid, &e.Ppid,
+			&e.Syscall, &e.ArgsJSON, &e.PolicyID, &e.Severity); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 func min(a, b int) int {
