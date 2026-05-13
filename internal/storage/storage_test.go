@@ -106,3 +106,120 @@ func TestMigrateIdempotent(t *testing.T) {
 		t.Fatalf("second Migrate: %v", err)
 	}
 }
+
+// --- Phase 3 tests ---
+
+func TestRecordAndRecentExecutions(t *testing.T) {
+	s := newTestStore(t)
+	for i := 0; i < 5; i++ {
+		if err := s.RecordExecution("MyHook", int64(100+i), 0, "wrap"); err != nil {
+			t.Fatalf("RecordExecution: %v", err)
+		}
+	}
+	execs, err := s.RecentExecutions("MyHook", 3)
+	if err != nil {
+		t.Fatalf("RecentExecutions: %v", err)
+	}
+	if len(execs) != 3 {
+		t.Errorf("want 3 results, got %d", len(execs))
+	}
+	// Results are ordered newest first.
+	if execs[0].DurationMs <= execs[len(execs)-1].DurationMs {
+		t.Errorf("expected descending order by id")
+	}
+}
+
+func TestMaxExecutionID(t *testing.T) {
+	s := newTestStore(t)
+	id, err := s.MaxExecutionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 0 {
+		t.Errorf("want 0 for empty table, got %d", id)
+	}
+	_ = s.RecordExecution("h", 100, 0, "wrap")
+	id, _ = s.MaxExecutionID()
+	if id == 0 {
+		t.Error("expected non-zero id after insert")
+	}
+}
+
+func TestExecutionsSince(t *testing.T) {
+	s := newTestStore(t)
+	_ = s.RecordExecution("h", 100, 0, "wrap") // id=1
+	_ = s.RecordExecution("h", 200, 0, "wrap") // id=2
+	_ = s.RecordExecution("h", 300, 0, "wrap") // id=3
+
+	execs, err := s.ExecutionsSince(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(execs) != 2 {
+		t.Errorf("want 2 results after id=1, got %d", len(execs))
+	}
+}
+
+func TestDistinctHookNames(t *testing.T) {
+	s := newTestStore(t)
+	_ = s.RecordExecution("Alpha", 100, 0, "wrap")
+	_ = s.RecordExecution("Beta", 200, 0, "wrap")
+	_ = s.RecordExecution("Alpha", 150, 0, "wrap")
+
+	names, err := s.DistinctHookNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 2 {
+		t.Errorf("want 2 distinct names, got %d: %v", len(names), names)
+	}
+}
+
+func TestUpsertAndGetBaselineStats(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.UpsertBaselineStats("MyHook", 30, 100.0, 10.0); err != nil {
+		t.Fatalf("UpsertBaselineStats: %v", err)
+	}
+	bs, err := s.GetBaselineStats("MyHook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bs == nil {
+		t.Fatal("expected non-nil stats")
+	}
+	if bs.SampleCount != 30 || bs.MeanMs != 100.0 || bs.StddevMs != 10.0 {
+		t.Errorf("stats mismatch: %+v", bs)
+	}
+	// Non-existent hook returns nil.
+	absent, err := s.GetBaselineStats("NonExistent")
+	if err != nil || absent != nil {
+		t.Errorf("expected nil, nil for unknown hook; got %v, %v", absent, err)
+	}
+}
+
+func TestDeleteBaselineAndExecutions(t *testing.T) {
+	s := newTestStore(t)
+	_ = s.UpsertBaselineStats("A", 10, 50.0, 5.0)
+	_ = s.UpsertBaselineStats("B", 20, 80.0, 8.0)
+	_ = s.RecordExecution("A", 50, 0, "wrap")
+
+	if err := s.DeleteBaselineStats("A"); err != nil {
+		t.Fatal(err)
+	}
+	bs, _ := s.GetBaselineStats("A")
+	if bs != nil {
+		t.Error("expected nil after delete")
+	}
+	bsB, _ := s.GetBaselineStats("B")
+	if bsB == nil {
+		t.Error("B should still exist")
+	}
+
+	if err := s.DeleteExecutions("A"); err != nil {
+		t.Fatal(err)
+	}
+	execs, _ := s.RecentExecutions("A", 10)
+	if len(execs) != 0 {
+		t.Errorf("expected 0 after delete, got %d", len(execs))
+	}
+}
