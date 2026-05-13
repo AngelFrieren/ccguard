@@ -43,7 +43,7 @@ func (s *Store) Close() error {
 // or the log tailer (Mode A).
 type Execution struct {
 	ID         int64
-	Ts         int64  // unix seconds
+	Ts         int64 // unix seconds
 	HookName   string
 	DurationMs int64
 	ExitCode   int

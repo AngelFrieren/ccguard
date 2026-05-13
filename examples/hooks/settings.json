@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccguard hook-wrap PreToolUse -- /path/to/your/pre-tool-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccguard hook-wrap PostToolUse -- /path/to/your/post-tool-hook.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccguard hook-wrap UserPromptSubmit -- /path/to/your/prompt-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

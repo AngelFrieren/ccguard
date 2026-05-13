@@ -9,8 +9,8 @@ contributes events to a shared audit log.
                 │            ccguard daemon              │
                 ├────────────────────────────────────────┤
                 │ L1 Hash Integrity   (Phase 1, shipped) │
-                │ L2 Baseline Anomaly (Phase 3, planned) │
-                │ L3 IOC Matching     (Phase 2, planned) │
+                │ L2 Baseline Anomaly (Phase 3, shipped) │
+                │ L3 IOC Matching     (Phase 2, shipped) │
                 │ L4 Behavioral       (Phase 4, planned) │
                 ├────────────────────────────────────────┤
                 │       Storage (SQLite) + Audit Log     │
@@ -149,9 +149,80 @@ Key design choices:
 
 See [`docs/IOC_FORMAT.md`](IOC_FORMAT.md) for the YAML schema.
 
+## Layer 2 — Baseline Anomaly Detection (Phase 3)
+
+Layer 2 detects T5 threats: a hook whose *content* is unchanged (invisible to
+L1) but which has been made to launch expensive background work on every
+invocation.
+
+### Data collection
+
+Two complementary modes feed execution records into the `hook_executions` table:
+
+```
+  Mode B (recommended)                Mode A (best-effort)
+  ──────────────────────              ──────────────────────────────
+  settings.json hook command          ccguard watch --log-dir <path>
+  ──────────────────────              ──────────────────────────────
+  ccguard hook-wrap Name -- cmd       LogTailer goroutine tails *.log
+         │                                    │
+         │ times cmd, writes                  │ parses lines via
+         │ hook_executions row                │ LineParser interface
+         └──────────┬─────────               ─┘
+                    ▼
+             hook_executions (SQLite)
+```
+
+### Anomaly detection pipeline
+
+```
+  hook_executions
+       │
+       ▼
+  RefreshAllStats() ─► baseline_stats (mean, stddev per hook)
+       │
+       ▼
+  New execution arrives (from Mode A or B)
+       │
+       ▼
+  checkAnomaly(): z = (duration − mean) / stddev
+       │
+  z ≥ AlertZ? ──► sink.Alert ("baseline-anomaly" event logged)
+  z ≥ WarnZ?  ──► sink.Warn
+  else        ──► no alert (update stats only)
+```
+
+Key design choices:
+
+- **Cold start / learning phase.** No alerts are emitted until at least
+  `--baseline-min-samples` executions have been collected for a hook.
+  During this phase the detector accumulates data without emitting noise.
+
+- **Rolling window.** Only the most recent `--baseline-window` executions
+  are used to compute mean and stddev. This makes the baseline adapt to
+  intentional changes (e.g. an updated hook implementation) without
+  requiring a manual reset.
+
+- **Bessel-corrected stddev.** Sample standard deviation (divide by n−1)
+  avoids underestimating variance on small samples.
+
+- **stddev = 0 guard.** If all recorded durations are identical, the
+  z-score formula would divide by zero. The anomaly check is skipped in
+  this case (constant-time hooks are not anomalous by definition).
+
+- **Rate-limit per hook.** A configurable `--baseline-cooldown` (default
+  5 min) suppresses repeated alerts for the same hook within the window,
+  preventing alert storms when a hook consistently misbehaves.
+
+- **Mode B works without watch.** `hook-wrap` writes directly to SQLite.
+  Data accumulates even when `ccguard watch` is not running. On next
+  startup, `RefreshAllStats()` recomputes stats from the accumulated rows.
+
+See [`docs/BASELINE.md`](BASELINE.md) for setup instructions and tuning guidance.
+
 ## Future layer hooks
 
 The internal `alert.Sink` is the single point through which all detections
-flow. Phase 2–4 layers will produce events into the same sink so that the
+flow. Phases 1–3 layers produce events into the same sink so that the
 audit log, JSON output, and (future) webhook delivery work uniformly
 regardless of which layer detected the issue.

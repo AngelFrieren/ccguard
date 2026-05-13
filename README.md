@@ -47,9 +47,15 @@ Phase 1 monitors `.claude/` directories with inotify/fsnotify. When a file
 changes, ccguard computes its SHA-256 and compares it against an approved
 baseline stored in a local SQLite database. Unknown hashes trigger an alert.
 
-Phase 2 (shipped) adds IOC matching: unapproved hashes and paths are also
-tested against a database of known-bad indicators. A match produces a
-higher-priority, named alert tied to a specific threat campaign.
+Phase 2 adds IOC matching: unapproved hashes and paths are also tested against
+a database of known-bad indicators. A match produces a higher-priority, named
+alert tied to a specific threat campaign.
+
+Phase 3 adds Layer 2 baseline anomaly detection via `ccguard hook-wrap`. When
+a Claude Code hook runs significantly slower than its historical baseline
+(z-score above a configurable threshold), ccguard emits a warning — detecting
+hooks that silently launch background exfiltration work without modifying
+`settings.json`. See [`docs/BASELINE.md`](docs/BASELINE.md) for setup.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
@@ -59,7 +65,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 |-------|-------|---------|--------|
 | 1 | L1 | SHA-256 hash integrity monitoring | ✅ Shipped |
 | 2 | L3 | IOC matching against known threat indicators | ✅ Shipped |
-| 3 | L2 | Statistical baseline anomaly detection | Planned |
+| 3 | L2 | Statistical baseline anomaly detection | ✅ Shipped |
 | 4 | L4 | Behavioral monitoring via eBPF/auditd | Planned |
 
 ## Threat model
