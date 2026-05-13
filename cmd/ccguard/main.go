@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/AngelFrieren/ccguard/internal/config"
 	"github.com/spf13/cobra"
@@ -35,12 +36,22 @@ baseline anomaly detection, IOC matching, and behavioral monitoring.`,
 	root.PersistentFlags().String("data-dir", "", "data directory (default: $XDG_DATA_HOME/ccguard)")
 	root.PersistentFlags().String("ioc-dir", "", "IOC YAML directory (default: $XDG_CONFIG_HOME/ccguard/iocs)")
 
+	// Phase 3 baseline flags.
+	root.PersistentFlags().Int("baseline-min-samples", 30, "minimum executions before anomaly detection activates per hook")
+	root.PersistentFlags().Int("baseline-window", 100, "number of recent executions used to compute the baseline")
+	root.PersistentFlags().Float64("baseline-warn-z", 3.0, "z-score threshold for a Warn-level anomaly")
+	root.PersistentFlags().Float64("baseline-alert-z", 5.0, "z-score threshold for an Alert-level anomaly")
+	root.PersistentFlags().Duration("baseline-cooldown", 5*time.Minute, "minimum interval between anomaly alerts per hook")
+	root.PersistentFlags().String("log-dir", "", "Mode A: directory to tail for Claude Code hook logs (disabled by default)")
+
 	root.AddCommand(
 		newInitCmd(),
 		newWatchCmd(),
 		newApproveCmd(),
 		newStatusCmd(),
 		newIOCCmd(),
+		newHookWrapCmd(),
+		newBaselineCmd(),
 		newVersionCmd(),
 	)
 
@@ -64,5 +75,29 @@ func resolveConfig(cmd *cobra.Command) (*config.Config, error) {
 	configPath, _ := cmd.Flags().GetString("config")
 	dataDir, _ := cmd.Flags().GetString("data-dir")
 	iocDir, _ := cmd.Flags().GetString("ioc-dir")
-	return config.Load(configPath, dataDir, iocDir)
+	cfg, err := config.Load(configPath, dataDir, iocDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Overlay Phase 3 baseline flags.
+	if v, err := cmd.Flags().GetInt("baseline-min-samples"); err == nil {
+		cfg.Baseline.MinSamples = v
+	}
+	if v, err := cmd.Flags().GetInt("baseline-window"); err == nil {
+		cfg.Baseline.Window = v
+	}
+	if v, err := cmd.Flags().GetFloat64("baseline-warn-z"); err == nil {
+		cfg.Baseline.WarnZ = v
+	}
+	if v, err := cmd.Flags().GetFloat64("baseline-alert-z"); err == nil {
+		cfg.Baseline.AlertZ = v
+	}
+	if v, err := cmd.Flags().GetDuration("baseline-cooldown"); err == nil {
+		cfg.Baseline.Cooldown = v
+	}
+	if v, err := cmd.Flags().GetString("log-dir"); err == nil {
+		cfg.Baseline.LogDir = v
+	}
+	return cfg, nil
 }

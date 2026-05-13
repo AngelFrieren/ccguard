@@ -9,7 +9,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
+
+// BaselineConfig holds Phase 3 anomaly detection parameters.
+// All fields map directly to baseline.Config for easy transfer.
+type BaselineConfig struct {
+	MinSamples int
+	Window     int
+	WarnZ      float64
+	AlertZ     float64
+	Cooldown   time.Duration
+	LogDir     string // Mode A: Claude Code log directory; "" disables Mode A
+}
+
+// DefaultBaseline returns production-ready default values for Phase 3.
+func DefaultBaseline() BaselineConfig {
+	return BaselineConfig{
+		MinSamples: 30,
+		Window:     100,
+		WarnZ:      3.0,
+		AlertZ:     5.0,
+		Cooldown:   5 * time.Minute,
+	}
+}
 
 // Config holds resolved runtime paths and watch targets.
 type Config struct {
@@ -23,6 +46,9 @@ type Config struct {
 	// IOCDir is the directory from which IOC YAML files are loaded (Phase 2).
 	// Default: $XDG_CONFIG_HOME/ccguard/iocs or ~/.config/ccguard/iocs.
 	IOCDir string
+
+	// Baseline holds Phase 3 anomaly detection parameters.
+	Baseline BaselineConfig
 }
 
 // DBPath returns the SQLite database file path inside DataDir.
@@ -64,6 +90,7 @@ func Load(configPath, dataDirOverride, iocDirOverride string) (*Config, error) {
 		DataDir:    dataDir,
 		WatchPaths: watch,
 		IOCDir:     iocDir,
+		Baseline:   DefaultBaseline(),
 	}, nil
 }
 
