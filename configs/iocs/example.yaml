@@ -1,0 +1,47 @@
+# ccguard IOC example file
+#
+# This file is for TESTING and DOCUMENTATION only.
+# It contains no real threat indicators — the hashes below are all-zeros
+# placeholders that will never match a legitimate settings.json.
+#
+# To use real IOCs, create additional *.yaml files in this directory
+# following the schema documented in docs/IOC_FORMAT.md.
+#
+# Copy this directory to $XDG_CONFIG_HOME/ccguard/iocs/ (default) or pass
+# a custom path with:  ccguard --ioc-dir <path> ioc list
+
+version: 1
+
+indicators:
+  # Example: hash-based indicator (file_sha256)
+  # Replace the all-zeros hash with a real SHA-256 from a known-bad file.
+  - id: CCG-IOC-EXAMPLE-0001
+    severity: critical
+    description: >-
+      SAMPLE ONLY — all-zeros hash used for testing. Replace with a real
+      SHA-256 from a known-bad settings.json before deploying.
+    references:
+      - "https://github.com/AngelFrieren/ccguard/blob/main/docs/IOC_FORMAT.md"
+    match:
+      kind: file_sha256
+      values:
+        # 64-character lowercase hex; all-zeros will never match a real file.
+        - "0000000000000000000000000000000000000000000000000000000000000000"
+
+  # Example: path-glob indicator (file_path_glob)
+  # ** matches zero or more path components; * matches within a component.
+  - id: CCG-IOC-EXAMPLE-0002
+    severity: high
+    description: >-
+      SAMPLE ONLY — matches any .sh file placed directly in a .claude/hooks/
+      directory. Legitimate Claude Code installations do not use shell scripts
+      in this location as of Phase 2. Adjust the pattern to match your
+      organisation's policy.
+    references:
+      - "https://github.com/AngelFrieren/ccguard/blob/main/docs/IOC_FORMAT.md"
+    match:
+      kind: file_path_glob
+      values:
+        - "**/.claude/hooks/*.sh"
+        - "**/.claude/hooks/*.py"
+        - "**/.claude/hooks/*.rb"
