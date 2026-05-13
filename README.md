@@ -1,5 +1,11 @@
 # ccguard
 
+[![CI](https://github.com/AngelFrieren/ccguard/actions/workflows/ci.yml/badge.svg)](https://github.com/AngelFrieren/ccguard/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AngelFrieren/ccguard)](https://github.com/AngelFrieren/ccguard/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/AngelFrieren/ccguard.svg)](https://pkg.go.dev/github.com/AngelFrieren/ccguard)
+[![Go Report Card](https://goreportcard.com/badge/github.com/AngelFrieren/ccguard)](https://goreportcard.com/report/github.com/AngelFrieren/ccguard)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **ccguard** is a defensive file integrity monitor for Claude Code configuration
 files. It detects unauthorized modifications to `~/.claude/settings.json` and
 project-level `.claude/settings.json` — the files that control Claude Code
@@ -13,6 +19,11 @@ purely **detective**, never offensive.
 ```sh
 # Initialize baseline (approve current config as legitimate)
 ccguard init
+
+# (Recommended) Write default behavioral policies to your config directory.
+# Without this step, ccguard falls back to the built-in defaults automatically.
+# Run once to get an editable copy you can customise.
+ccguard policy init
 
 # Start monitoring (runs in foreground; use systemd unit for production)
 ccguard watch
@@ -57,6 +68,14 @@ a Claude Code hook runs significantly slower than its historical baseline
 hooks that silently launch background exfiltration work without modifying
 `settings.json`. See [`docs/BASELINE.md`](docs/BASELINE.md) for setup.
 
+Phase 4 adds Layer 4 behavioral monitoring. The watch daemon tracks the process
+tree spawned by `hook-wrap` and observes their syscalls (via procfs polling,
+auditd log tailing, or eBPF on supported kernels). Behavioral policies in
+`$XDG_CONFIG_HOME/ccguard/policies/` define which process actions trigger alerts
+— e.g. opening `/proc/*/mem`, executing credential tools, or connecting to
+unexpected hosts. See [`docs/BEHAVIOR.md`](docs/BEHAVIOR.md) and
+[`docs/POLICY_FORMAT.md`](docs/POLICY_FORMAT.md) for setup and policy authoring.
+
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ## Roadmap
@@ -66,7 +85,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 | 1 | L1 | SHA-256 hash integrity monitoring | ✅ Shipped |
 | 2 | L3 | IOC matching against known threat indicators | ✅ Shipped |
 | 3 | L2 | Statistical baseline anomaly detection | ✅ Shipped |
-| 4 | L4 | Behavioral monitoring via eBPF/auditd | Planned |
+| 4 | L4 | Behavioral monitoring via eBPF/auditd | ✅ Shipped |
 
 ## Threat model
 
