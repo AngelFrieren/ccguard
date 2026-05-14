@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: 'stable'
           cache: true
       - name: go vet
         run: go vet ./...
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: 'stable'
       - name: debug env
         run: |
           go env GOVERSION GOROOT GOPATH GOTOOLCHAIN
