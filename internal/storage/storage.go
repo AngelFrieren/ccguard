@@ -28,7 +28,7 @@ func Open(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1) // SQLite + WAL: single writer is simplest and safest here.
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return &Store{db: db}, nil

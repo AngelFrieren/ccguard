@@ -98,7 +98,7 @@ func LoadDir(dir string) (*DB, error) {
 }
 
 func loadFile(path string) ([]Indicator, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is a user-configured IOC database file
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}

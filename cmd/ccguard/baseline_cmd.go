@@ -99,7 +99,7 @@ and its status changes to "monitoring".`,
 					status, updated,
 				)
 			}
-			tw.Flush()
+			_ = tw.Flush()
 			fmt.Printf("\nAnomaly thresholds: warn z≥%.1f  alert z≥%.1f  cooldown %v\n",
 				cfg.Baseline.WarnZ, cfg.Baseline.AlertZ, cfg.Baseline.Cooldown)
 			return nil

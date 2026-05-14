@@ -57,7 +57,7 @@ overridden with the global --ioc-dir flag.`,
 					ind.Description,
 				)
 			}
-			tw.Flush()
+			_ = tw.Flush()
 
 			fmt.Printf("\n%d indicator(s) loaded from %s\n", len(indicators), cfg.IOCDir)
 			return nil

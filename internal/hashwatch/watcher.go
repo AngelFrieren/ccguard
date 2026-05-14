@@ -51,7 +51,7 @@ func NewWatcher(paths []string, store *storage.Store, sink *alert.Sink, iocDB *i
 	}
 
 	if err := w.addWatches(); err != nil {
-		fsw.Close()
+		_ = fsw.Close()
 		return nil, err
 	}
 	return w, nil

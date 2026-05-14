@@ -30,7 +30,7 @@ func listenPIDSocket(ctx context.Context, sockPath string, tree *behavior.ProcTr
 		return
 	}
 	defer func() {
-		l.Close()
+		_ = l.Close()
 		_ = os.Remove(sockPath)
 	}()
 
@@ -41,7 +41,7 @@ func listenPIDSocket(ctx context.Context, sockPath string, tree *behavior.ProcTr
 	// Close the listener when ctx is cancelled so Accept() unblocks.
 	go func() {
 		<-ctx.Done()
-		l.Close()
+		_ = l.Close()
 	}()
 
 	for {

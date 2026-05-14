@@ -119,7 +119,7 @@ func LoadDir(dir string) (*DB, error) {
 		if ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
+		data, readErr := os.ReadFile(path) // #nosec G304 G122 -- path from WalkDir callback; monitor tool reads arbitrary user-configured paths
 		if readErr != nil {
 			log.Printf("ccguard policy: read %s: %v (skipping)", path, readErr)
 			return nil
@@ -144,7 +144,7 @@ func LoadDir(dir string) (*DB, error) {
 // LoadFile loads policies from a single YAML file.
 // Used by `ccguard policy check`.
 func LoadFile(path string) (*DB, []error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- caller supplies a user-specified policy file path
 	if err != nil {
 		return &DB{}, []error{fmt.Errorf("read: %w", err)}
 	}

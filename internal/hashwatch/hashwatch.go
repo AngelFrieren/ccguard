@@ -31,7 +31,7 @@ func IsMonitored(filename string) bool {
 // HashFile computes the SHA-256 of a file's contents and returns it as a
 // lowercase hex string.
 func HashFile(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- monitoring arbitrary user files is this tool's core purpose
 	if err != nil {
 		return "", err
 	}

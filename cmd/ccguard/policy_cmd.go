@@ -56,7 +56,7 @@ func newPolicyListCmd() *cobra.Command {
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
 					p.ID, p.Severity, p.When.Syscall, p.Action, p.Description)
 			}
-			tw.Flush()
+			_ = tw.Flush()
 			fmt.Printf("\n%d policy(ies)\n", len(policies))
 			return nil
 		},
@@ -122,7 +122,7 @@ overwriting. Use --force to skip the prompt.`,
 				return fmt.Errorf("create policy dir: %w", err)
 			}
 			data := policy.DefaultPoliciesYAML()
-			if err := os.WriteFile(dest, data, 0o644); err != nil {
+			if err := os.WriteFile(dest, data, 0o600); err != nil {
 				return fmt.Errorf("write %s: %w", dest, err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "written: %s\n", dest)

@@ -118,7 +118,7 @@ func notifyDaemon(sockPath string, pid int) {
 // runWrap executes command with args, records the execution via det, and
 // returns the exit code. It is extracted for testability.
 func runWrap(det *baseline.Detector, hookName, command string, args []string) int {
-	c := exec.Command(command, args...)
+	c := exec.Command(command, args...) // #nosec G204 -- intentional: hook-wrap re-executes the user's configured hook command
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr

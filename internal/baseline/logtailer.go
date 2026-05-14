@@ -94,7 +94,7 @@ func (lt *LogTailer) discover(ctx context.Context, seen map[string]struct{}) {
 // tailFile tails path from its current end, processing new lines every 500 ms
 // until ctx is cancelled or the file becomes unreadable.
 func (lt *LogTailer) tailFile(ctx context.Context, path string) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is a user-configured audit log file
 	if err != nil {
 		return
 	}
