@@ -257,6 +257,119 @@ policies:
 	}
 }
 
+// --- basename normalization tests (regression for full-path bug) ---
+
+// TestEval_ExecveFullPathMatchesBasename verifies that a policy using a plain
+// basename in command_basename_in matches even when the event's CmdBasename
+// carries a full path (e.g. "/tmp/secret-tool" vs "secret-tool").
+// This can happen when a backend passes the raw exe path without stripping
+// the directory component before the policy engine sees it.
+func TestEval_ExecveFullPathMatchesBasename(t *testing.T) {
+	db := newDB(t, `
+version: 1
+policies:
+  - id: CCG-FULLPATH-TEST
+    severity: high
+    description: match by basename even when full path provided
+    when:
+      syscall: execve
+      command_basename_in: [secret-tool]
+    action: alert
+`)
+	// Simulate a backend that hands us the full executable path.
+	matches := db.Eval(Event{Syscall: "execve", CmdBasename: "/tmp/secret-tool"})
+	if len(matches) != 1 || matches[0].Policy.ID != "CCG-FULLPATH-TEST" {
+		t.Errorf("expected match for full path; got %+v", matches)
+	}
+}
+
+func TestEval_ExecveNestedPathMatchesBasename(t *testing.T) {
+	db := newDB(t, `
+version: 1
+policies:
+  - id: CCG-NESTED-PATH-TEST
+    severity: high
+    description: match basename from deeply nested path
+    when:
+      syscall: execve
+      command_basename_in: [mimikatz]
+    action: alert
+`)
+	matches := db.Eval(Event{Syscall: "execve", CmdBasename: "/usr/local/bin/mimikatz"})
+	if len(matches) != 1 {
+		t.Errorf("expected match for nested path; got %+v", matches)
+	}
+}
+
+func TestEval_ExecveBasenameAlreadyNormalized(t *testing.T) {
+	db := newDB(t, validYAML)
+	// When CmdBasename is already a basename, matching still works correctly.
+	matches := db.Eval(Event{Syscall: "execve", CmdBasename: "curl"})
+	if len(matches) != 1 || matches[0].Policy.ID != "CCG-POLICY-0001" {
+		t.Errorf("expected match for plain basename; got %+v", matches)
+	}
+}
+
+// --- embed / fallback tests ---
+
+func TestDefaultPoliciesYAML_Readable(t *testing.T) {
+	data := DefaultPoliciesYAML()
+	if len(data) == 0 {
+		t.Fatal("DefaultPoliciesYAML returned empty bytes")
+	}
+	db, errs := parseBytes(data)
+	if len(errs) != 0 {
+		t.Fatalf("built-in defaults failed validation: %v", errs)
+	}
+	if db.Len() == 0 {
+		t.Fatal("built-in defaults contain no policies")
+	}
+}
+
+func TestLoadWithFallback_UserDirUsed(t *testing.T) {
+	dir := t.TempDir()
+	writeYAML(t, dir, "custom.yaml", validYAML)
+
+	db, err := LoadWithFallback(dir)
+	if err != nil {
+		t.Fatalf("LoadWithFallback: %v", err)
+	}
+	if db.Source != SourceUser {
+		t.Errorf("expected Source=%q, got %q", SourceUser, db.Source)
+	}
+	if db.Len() != 3 {
+		t.Errorf("expected 3 user policies, got %d", db.Len())
+	}
+}
+
+func TestLoadWithFallback_EmptyDirFallsBack(t *testing.T) {
+	dir := t.TempDir() // exists but has no *.yaml files
+
+	db, err := LoadWithFallback(dir)
+	if err != nil {
+		t.Fatalf("LoadWithFallback: %v", err)
+	}
+	if db.Source != SourceBuiltin {
+		t.Errorf("expected Source=%q, got %q", SourceBuiltin, db.Source)
+	}
+	if db.Len() == 0 {
+		t.Error("expected built-in policies to be loaded on empty dir")
+	}
+}
+
+func TestLoadWithFallback_NonExistentDirFallsBack(t *testing.T) {
+	db, err := LoadWithFallback("/nonexistent-ccguard-test-fallback")
+	if err != nil {
+		t.Fatalf("LoadWithFallback: %v", err)
+	}
+	if db.Source != SourceBuiltin {
+		t.Errorf("expected Source=%q, got %q", SourceBuiltin, db.Source)
+	}
+	if db.Len() == 0 {
+		t.Error("expected built-in policies as fallback for missing dir")
+	}
+}
+
 func TestLoadDir_Recursive(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "subdir")

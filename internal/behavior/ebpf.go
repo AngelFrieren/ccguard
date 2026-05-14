@@ -11,9 +11,9 @@
 //     kernel does not enable all required BPF features
 //
 // A production implementation would use github.com/cilium/ebpf to:
-//   1. Load pre-compiled BPF objects (generated with bpf2go / libbpf-go)
-//   2. Attach tracepoints: sys_enter_execve, sys_enter_openat, sys_enter_connect
-//   3. Stream events via a perf/ring buffer to user space
+//  1. Load pre-compiled BPF objects (generated with bpf2go / libbpf-go)
+//  2. Attach tracepoints: sys_enter_execve, sys_enter_openat, sys_enter_connect
+//  3. Stream events via a perf/ring buffer to user space
 //
 // This skeleton registers the backend (priority 30, highest) and performs a
 // kernel version check in Available(). Start() returns an error indicating

@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+// BehaviorConfig holds Phase 4 behavioral monitoring parameters.
+type BehaviorConfig struct {
+	// Backend selects the monitoring backend: "auto" | "procfs" | "auditd" | "ebpf" | "off".
+	// "auto" selects the highest-precision available backend.
+	Backend string
+
+	// PolicyDir is the directory from which policy YAML files are loaded.
+	// Default: $XDG_CONFIG_HOME/ccguard/policies.
+	PolicyDir string
+}
+
+// DefaultBehavior returns production-ready defaults for Phase 4.
+func DefaultBehavior() BehaviorConfig {
+	return BehaviorConfig{
+		Backend: "auto",
+	}
+}
+
 // BaselineConfig holds Phase 3 anomaly detection parameters.
 // All fields map directly to baseline.Config for easy transfer.
 type BaselineConfig struct {
@@ -49,6 +67,9 @@ type Config struct {
 
 	// Baseline holds Phase 3 anomaly detection parameters.
 	Baseline BaselineConfig
+
+	// Behavior holds Phase 4 behavioral monitoring parameters.
+	Behavior BehaviorConfig
 }
 
 // DBPath returns the SQLite database file path inside DataDir.
@@ -56,11 +77,21 @@ func (c *Config) DBPath() string {
 	return filepath.Join(c.DataDir, "ccguard.db")
 }
 
+// SocketPath returns the Unix domain socket path used for hook-wrap → daemon
+// PID notification. Path is $XDG_RUNTIME_DIR/ccguard.sock, falling back to
+// /tmp/ccguard-<uid>.sock. Permission must be set to 0600 by the listener.
+func (c *Config) SocketPath() string {
+	if runtime := os.Getenv("XDG_RUNTIME_DIR"); runtime != "" {
+		return filepath.Join(runtime, "ccguard.sock")
+	}
+	return fmt.Sprintf("/tmp/ccguard-%d.sock", os.Getuid())
+}
+
 // Load resolves config, applying defaults when explicit paths are empty.
 //
 // configPath is reserved for a future YAML config file and is accepted but not
 // yet consulted.
-func Load(configPath, dataDirOverride, iocDirOverride string) (*Config, error) {
+func Load(configPath, dataDirOverride, iocDirOverride, policyDirOverride string) (*Config, error) {
 	_ = configPath // reserved for future YAML config
 
 	dataDir := dataDirOverride
@@ -81,17 +112,41 @@ func Load(configPath, dataDirOverride, iocDirOverride string) (*Config, error) {
 		iocDir = d
 	}
 
+	policyDir := policyDirOverride
+	if policyDir == "" {
+		d, err := defaultPolicyDir()
+		if err != nil {
+			return nil, err
+		}
+		policyDir = d
+	}
+
 	watch, err := defaultWatchPaths()
 	if err != nil {
 		return nil, err
 	}
+
+	beh := DefaultBehavior()
+	beh.PolicyDir = policyDir
 
 	return &Config{
 		DataDir:    dataDir,
 		WatchPaths: watch,
 		IOCDir:     iocDir,
 		Baseline:   DefaultBaseline(),
+		Behavior:   beh,
 	}, nil
+}
+
+func defaultPolicyDir() (string, error) {
+	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
+		return filepath.Join(d, "ccguard", "policies"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".config", "ccguard", "policies"), nil
 }
 
 func defaultIOCDir() (string, error) {

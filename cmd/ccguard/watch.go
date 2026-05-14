@@ -9,8 +9,10 @@ import (
 
 	"github.com/AngelFrieren/ccguard/internal/alert"
 	"github.com/AngelFrieren/ccguard/internal/baseline"
+	"github.com/AngelFrieren/ccguard/internal/behavior"
 	"github.com/AngelFrieren/ccguard/internal/hashwatch"
 	"github.com/AngelFrieren/ccguard/internal/ioc"
+	"github.com/AngelFrieren/ccguard/internal/policy"
 	"github.com/AngelFrieren/ccguard/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -89,6 +91,46 @@ Press Ctrl+C to stop.`,
 			if cfg.Baseline.LogDir != "" {
 				lt := baseline.NewLogTailer(cfg.Baseline.LogDir, det, sink, nil)
 				go lt.Run(ctx)
+			}
+
+			// Phase 4: behavioral monitoring (Layer 4 — T6 threat).
+			policyDB, err := policy.LoadWithFallback(cfg.Behavior.PolicyDir)
+			if err != nil {
+				sink.Warn("behavior: policy load failed", map[string]any{
+					"dir":   cfg.Behavior.PolicyDir,
+					"error": err.Error(),
+				})
+			}
+			switch policyDB.Source {
+			case policy.SourceUser:
+				sink.Info("behavioral policies loaded", map[string]any{
+					"count":  policyDB.Len(),
+					"source": "user",
+					"dir":    cfg.Behavior.PolicyDir,
+				})
+			case policy.SourceBuiltin:
+				sink.Info("behavioral policies loaded", map[string]any{
+					"count":  policyDB.Len(),
+					"source": "built-in defaults",
+				})
+			}
+
+			behTree := behavior.NewProcTree()
+			behBackend, behActive := behavior.SelectBackend(cfg.Behavior.Backend, behTree, sink)
+			if behActive {
+				sink.Info("behavioral monitoring active", map[string]any{"backend": behBackend.Name()})
+				go listenPIDSocket(ctx, cfg.SocketPath(), behTree, sink)
+				eventCh, startErr := behBackend.Start(ctx)
+				if startErr != nil {
+					sink.Warn("behavior backend start failed", map[string]any{
+						"backend": behBackend.Name(),
+						"error":   startErr.Error(),
+					})
+				} else {
+					go processBehaviorEvents(ctx, eventCh, policyDB, store, sink)
+				}
+			} else {
+				sink.Info("behavioral monitoring unavailable", map[string]any{"backend": cfg.Behavior.Backend})
 			}
 
 			sink.Info("ccguard watch started", map[string]any{

@@ -18,6 +18,16 @@ var (
 )
 
 func main() {
+	if err := buildRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+// buildRootCmd constructs the root cobra command and all subcommands.
+// Extracted so that tests can create a fresh command tree with custom
+// stdin/stdout/stderr without running main().
+func buildRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "ccguard",
 		Short: "ccguard — file integrity monitor for Claude Code configuration",
@@ -35,6 +45,7 @@ baseline anomaly detection, IOC matching, and behavioral monitoring.`,
 	root.PersistentFlags().String("config", "", "config file (default: $XDG_CONFIG_HOME/ccguard/config.yaml)")
 	root.PersistentFlags().String("data-dir", "", "data directory (default: $XDG_DATA_HOME/ccguard)")
 	root.PersistentFlags().String("ioc-dir", "", "IOC YAML directory (default: $XDG_CONFIG_HOME/ccguard/iocs)")
+	root.PersistentFlags().String("policy-dir", "", "policy YAML directory (default: $XDG_CONFIG_HOME/ccguard/policies)")
 
 	// Phase 3 baseline flags.
 	root.PersistentFlags().Int("baseline-min-samples", 30, "minimum executions before anomaly detection activates per hook")
@@ -44,6 +55,9 @@ baseline anomaly detection, IOC matching, and behavioral monitoring.`,
 	root.PersistentFlags().Duration("baseline-cooldown", 5*time.Minute, "minimum interval between anomaly alerts per hook")
 	root.PersistentFlags().String("log-dir", "", "Mode A: directory to tail for Claude Code hook logs (disabled by default)")
 
+	// Phase 4 behavioral monitoring flags.
+	root.PersistentFlags().String("behavior-backend", "auto", "behavioral monitoring backend: auto|procfs|auditd|ebpf|off")
+
 	root.AddCommand(
 		newInitCmd(),
 		newWatchCmd(),
@@ -52,13 +66,11 @@ baseline anomaly detection, IOC matching, and behavioral monitoring.`,
 		newIOCCmd(),
 		newHookWrapCmd(),
 		newBaselineCmd(),
+		newPolicyCmd(),
+		newBehaviorCmd(),
 		newVersionCmd(),
 	)
-
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	return root
 }
 
 func newVersionCmd() *cobra.Command {
@@ -75,7 +87,8 @@ func resolveConfig(cmd *cobra.Command) (*config.Config, error) {
 	configPath, _ := cmd.Flags().GetString("config")
 	dataDir, _ := cmd.Flags().GetString("data-dir")
 	iocDir, _ := cmd.Flags().GetString("ioc-dir")
-	cfg, err := config.Load(configPath, dataDir, iocDir)
+	policyDir, _ := cmd.Flags().GetString("policy-dir")
+	cfg, err := config.Load(configPath, dataDir, iocDir, policyDir)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +111,11 @@ func resolveConfig(cmd *cobra.Command) (*config.Config, error) {
 	}
 	if v, err := cmd.Flags().GetString("log-dir"); err == nil {
 		cfg.Baseline.LogDir = v
+	}
+
+	// Overlay Phase 4 behavior flags.
+	if v, err := cmd.Flags().GetString("behavior-backend"); err == nil && v != "" {
+		cfg.Behavior.Backend = v
 	}
 	return cfg, nil
 }

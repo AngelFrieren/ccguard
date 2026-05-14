@@ -50,12 +50,13 @@ the user account that runs Claude Code.
 | T3 | 1 | Deletion of `settings.json` to reset state for a follow-up tampering attempt | REMOVE events generate alerts |
 | T4 | 1 | Adversary edits `settings.json` and then re-edits to original content to evade detection | All transitions are recorded in the audit log even when the final hash matches the baseline |
 | T5 | 3 | Hook content unchanged but hook launches heavy background work (encryption, exfiltration) each time it fires — invisible to hash-based detection | Layer 2 z-score baseline anomaly detection flags statistically significant duration increases |
+| T6 | 4 | Hook-spawned process attempts a sensitive syscall (read `/proc/*/mem`, execute credential tools, open SSH keys, connect to unexpected hosts) | Layer 4 behavioral monitoring via procfs polling / auditd / eBPF; policy-driven alert or warn on match |
 
 ## Threats explicitly out of scope
 
 | ID | Threat | Why out of scope |
 |----|--------|------------------|
-| O1 | Adversary disables or kills `ccguard` before tampering | Same-privilege adversary; mitigated only by Phase 4 (kernel-level) work and OS hardening |
+| O1 | Adversary disables or kills `ccguard` before tampering | Same-privilege adversary; Phase 4 procfs/auditd/eBPF monitoring of existing processes reduces the window but cannot prevent this entirely |
 | O2 | Adversary deletes the audit log | Same-privilege adversary. Forwarding events to a remote sink is planned but optional |
 | O3 | Adversary modifies files inside `~/.claude/` other than the monitored set | Monitored filename list is conservative; widen via config when needed |
 | O4 | Malicious Claude Code MCP server that doesn't require a config change | Phases 3 and 4 will partially address; Phase 1 cannot |

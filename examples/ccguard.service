@@ -1,0 +1,18 @@
+[Unit]
+Description=ccguard — Claude Code config integrity monitor
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/go/bin/ccguard watch --json
+Restart=on-failure
+RestartSec=2
+# ccguard does not need network or elevated privileges.
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/ccguard
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

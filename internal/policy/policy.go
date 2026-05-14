@@ -39,7 +39,7 @@ const (
 
 // When holds the match conditions for a policy rule.
 type When struct {
-	Syscall                   string   `yaml:"syscall"`                       // execve | openat | connect
+	Syscall                   string   `yaml:"syscall"`                      // execve | openat | connect
 	PathGlob                  string   `yaml:"path_glob"`                    // openat: glob on file path
 	CommandBasenameIn         []string `yaml:"command_basename_in"`          // execve: command basename list
 	DestinationNotInAllowlist []string `yaml:"destination_not_in_allowlist"` // connect: deny-by-default allowlist
@@ -74,9 +74,23 @@ type Match struct {
 	Event  Event
 }
 
+// Source describes where a DB's policies were loaded from.
+type Source string
+
+const (
+	// SourceUser indicates policies were loaded from the user's config directory.
+	SourceUser Source = "user"
+	// SourceBuiltin indicates the built-in default policies were used as a
+	// fallback because the user config directory contained no *.yaml files.
+	SourceBuiltin Source = "built-in"
+)
+
 // DB holds all loaded policies.
 type DB struct {
 	policies []Policy
+	// Source records whether policies came from the user's directory or the
+	// built-in defaults. Set by LoadWithFallback; empty for other loaders.
+	Source Source
 }
 
 // Len returns the number of loaded policies.
@@ -130,13 +144,37 @@ func LoadDir(dir string) (*DB, error) {
 // LoadFile loads policies from a single YAML file.
 // Used by `ccguard policy check`.
 func LoadFile(path string) (*DB, []error) {
-	db := &DB{}
-	var errs []error
-
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return db, []error{fmt.Errorf("read: %w", err)}
+		return &DB{}, []error{fmt.Errorf("read: %w", err)}
 	}
+	return parseBytes(data)
+}
+
+// LoadWithFallback loads policies from dir. If dir does not exist or contains
+// no *.yaml / *.yml files, it falls back to the built-in default policies
+// embedded in the binary and sets DB.Source = SourceBuiltin. When user
+// policies are found, DB.Source = SourceUser.
+func LoadWithFallback(dir string) (*DB, error) {
+	db, err := LoadDir(dir)
+	if err != nil {
+		return db, err
+	}
+	if db.Len() > 0 {
+		db.Source = SourceUser
+		return db, nil
+	}
+	// No user policies — use built-in defaults.
+	db, _ = parseBytes(DefaultPoliciesYAML())
+	db.Source = SourceBuiltin
+	return db, nil
+}
+
+// parseBytes parses a policyFile from raw YAML bytes and validates each entry.
+// Invalid policies are collected as errors; valid ones are added to the returned DB.
+func parseBytes(data []byte) (*DB, []error) {
+	db := &DB{}
+	var errs []error
 	var f policyFile
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return db, []error{fmt.Errorf("parse: %w", err)}
@@ -190,9 +228,14 @@ func matchPolicy(p Policy, ev Event) bool {
 	switch ev.Syscall {
 	case "execve":
 		if len(w.CommandBasenameIn) > 0 {
+			// Normalize to basename here so that backends passing a full path
+			// (e.g. "/tmp/secret-tool") still match a policy that lists the
+			// basename ("secret-tool"). filepath.Base is idempotent when the
+			// value is already a basename.
+			cmdBase := filepath.Base(ev.CmdBasename)
 			found := false
 			for _, name := range w.CommandBasenameIn {
-				if ev.CmdBasename == name {
+				if cmdBase == name {
 					found = true
 					break
 				}

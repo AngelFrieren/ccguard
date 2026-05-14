@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"time"
@@ -86,6 +87,11 @@ Exit codes:
 				Cooldown:   cfg.Baseline.Cooldown,
 			})
 
+			// Notify the watch daemon of our PID so it can track the hook
+			// process tree (Phase 4 behavioral monitoring). Best-effort: if the
+			// daemon is not running the notification fails silently.
+			notifyDaemon(cfg.SocketPath(), os.Getpid())
+
 			exitCode := runWrap(det, hookName, command, cmdArgs)
 			if exitCode != 0 {
 				os.Exit(exitCode)
@@ -93,6 +99,20 @@ Exit codes:
 			return nil
 		},
 	}
+}
+
+// notifyDaemon sends our PID to the ccguard daemon via Unix socket so the
+// daemon can track this hook-wrap process and its children as the root of the
+// behavior monitoring process tree. Best-effort: errors are silently ignored
+// so that hook-wrap never fails due to a missing daemon.
+func notifyDaemon(sockPath string, pid int) {
+	conn, err := net.DialTimeout("unix", sockPath, 200*time.Millisecond)
+	if err != nil {
+		return // daemon not running or socket not ready — that is OK
+	}
+	defer conn.Close()
+	_ = conn.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+	fmt.Fprintf(conn, "%d\n", pid)
 }
 
 // runWrap executes command with args, records the execution via det, and

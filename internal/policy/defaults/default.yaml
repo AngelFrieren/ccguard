@@ -1,0 +1,42 @@
+version: 1
+policies:
+
+  # T6: Hook process reads kernel memory — high-confidence indicator of privilege
+  # escalation or process injection attempt.
+  - id: T6-proc-mem-read
+    description: Hook process opened /proc/*/mem (kernel memory access)
+    severity: critical
+    when:
+      syscall: openat
+      path_glob: /proc/*/mem
+    action: alert
+
+  # T6: Hook process executed a known credential-harvesting tool.
+  - id: T6-credential-tool
+    description: Hook process executed a credential-dumping or secret-access tool
+    severity: high
+    when:
+      syscall: execve
+      command_basename_in:
+        - mimikatz
+        - lazagne
+        - secretsdump
+        - credsdump
+        - keydump
+        - dump-keychain
+        - security    # macOS keychain CLI
+        - secret-tool # GNOME libsecret CLI
+        - pass        # password-store CLI
+        - keyring     # GNOME keyring CLI
+    action: alert
+
+  # T6: Hook process opened SSH private key files.
+  # filepath.Match does not support **, so home-directory keys use /home/*/.ssh/id_*.
+  # Add a second rule covering /root/.ssh/id_* for root-run hooks if needed.
+  - id: T6-ssh-key-access
+    description: Hook process accessed SSH private key files under /home
+    severity: high
+    when:
+      syscall: openat
+      path_glob: /home/*/.ssh/id_*
+    action: warn

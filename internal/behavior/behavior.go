@@ -29,7 +29,7 @@ import (
 
 // Event is a behavioral observation emitted by a backend.
 type Event struct {
-	Ts      int64    // unix seconds
+	Ts      int64 // unix seconds
 	Pid     int
 	Ppid    int
 	Syscall string   // execve | openat | connect
@@ -129,7 +129,7 @@ func registerBackend(priority int, fn func(*ProcTree, *alert.Sink) Backend) {
 // --behavior-backend off is specified.
 type noopBackend struct{ name string }
 
-func (b *noopBackend) Name() string { return b.name }
+func (b *noopBackend) Name() string    { return b.name }
 func (b *noopBackend) Available() bool { return false }
 func (b *noopBackend) Start(_ context.Context) (<-chan Event, error) {
 	ch := make(chan Event)

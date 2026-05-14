@@ -11,7 +11,7 @@ contributes events to a shared audit log.
                 │ L1 Hash Integrity   (Phase 1, shipped) │
                 │ L2 Baseline Anomaly (Phase 3, shipped) │
                 │ L3 IOC Matching     (Phase 2, shipped) │
-                │ L4 Behavioral       (Phase 4, planned) │
+                │ L4 Behavioral       (Phase 4, shipped) │
                 ├────────────────────────────────────────┤
                 │       Storage (SQLite) + Audit Log     │
                 ├────────────────────────────────────────┤
@@ -220,9 +220,107 @@ Key design choices:
 
 See [`docs/BASELINE.md`](BASELINE.md) for setup instructions and tuning guidance.
 
-## Future layer hooks
+## Layer 4 — Behavioral Monitoring (Phase 4)
+
+Layer 4 detects T6 threats: hook-spawned processes that attempt sensitive
+operations (memory reads, credential access, unexpected outbound connections)
+that are invisible to the earlier layers.
+
+### Process tree tracking
+
+`ccguard hook-wrap` notifies the watch daemon of its PID via a Unix domain
+socket (`$XDG_RUNTIME_DIR/ccguard.sock`, permissions 0600). The daemon
+maintains a `ProcTree` of all known hook-root PIDs and their descendants.
+Only processes in this tree are monitored — ccguard does **not** watch the
+full machine.
+
+```
+  hook-wrap (PID 4321)
+       │  connect to ccguard.sock, send "4321\n"
+       ▼
+  ccguard watch daemon
+       │  tree.AddRoot(4321)
+       │
+       │  backend polls /proc or reads auditd log
+       ▼
+  new PID 4400, ppid=4321 → tree.AddChild(4400, 4321)  → monitored
+  new PID 9999, ppid=1    → tree.AddChild(9999, 1)     → ignored
+```
+
+### Backend selection
+
+| Backend | Build tag | Availability | Precision | Notes |
+|---------|-----------|--------------|-----------|-------|
+| procfs  | `linux`   | Always       | Medium    | Polls `/proc` at ~100ms; misses short-lived processes |
+| auditd  | `linux`   | Root or `audit` group | High | Tails `/var/log/audit/audit.log`; kernel-level record |
+| eBPF    | `linux && ebpf` | Kernel ≥5.10 + CONFIG_BPF_SYSCALL | High | Lowest overhead; requires custom build |
+| noop    | always    | Always       | None      | Silent fallback when no other backend available |
+
+Selection order: eBPF (priority 30) > auditd (priority 20) > procfs (priority 10) > noop.
+`--behavior-backend auto` selects the highest-priority available backend.
+
+### Event pipeline
+
+```
+  Backend (procfs / auditd / eBPF)
+       │  behavior.Event{Ts, Pid, Ppid, Syscall, Args, Backend}
+       ▼
+  processBehaviorEvents() goroutine
+       │
+       ├─► policy.DB.Eval(event) → []Match
+       │       │
+       │       └─► sink.Alert / sink.Warn per match
+       │
+       └─► batch write to behavior_events (100ms or 100 events)
+```
+
+### Policy engine
+
+Behavioral policies are YAML files in `$XDG_CONFIG_HOME/ccguard/policies/`.
+Each policy specifies a syscall kind and match conditions:
+
+```yaml
+version: 1
+policies:
+  - id: T6-proc-mem-read
+    severity: critical
+    when:
+      syscall: openat
+      path_glob: /proc/*/mem
+    action: alert
+```
+
+Supported syscalls: `execve`, `openat`, `connect`. The `block` action
+requires `-tags active-enforcement` at build time; the default build
+observes and alerts only.
+
+Key design choices:
+
+- **Scoped to hook process forest.** ccguard tracks only PIDs that
+  descend from a `hook-wrap` root. Unrelated processes are never examined.
+
+- **Best-effort PID notification.** If the watch daemon is not running,
+  `hook-wrap` continues normally and the notification is silently dropped.
+  Behavioral monitoring degrades gracefully.
+
+- **No CGO, no kernel modules.** procfs and auditd backends are pure Go.
+  The eBPF backend is gated behind a build tag so the default static binary
+  has no kernel dependencies.
+
+- **Batch writes.** `behavior_events` rows are written in transactions of
+  up to 100 events or 100ms, whichever comes first. This amortizes SQLite
+  write overhead for high-frequency syscall streams.
+
+- **Forward-compatible policies.** Unknown syscall kinds and unknown policy
+  fields are logged and skipped, not errors. This allows newer policy files
+  to be used with older ccguard binaries.
+
+See [`docs/BEHAVIOR.md`](BEHAVIOR.md) and [`docs/POLICY_FORMAT.md`](POLICY_FORMAT.md)
+for setup and schema documentation.
+
+## Alert Sink
 
 The internal `alert.Sink` is the single point through which all detections
-flow. Phases 1–3 layers produce events into the same sink so that the
+flow. All four layers produce events into the same sink so that the
 audit log, JSON output, and (future) webhook delivery work uniformly
 regardless of which layer detected the issue.

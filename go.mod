@@ -1,6 +1,6 @@
 module github.com/AngelFrieren/ccguard
 
-go 1.22
+go 1.26.3
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
