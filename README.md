@@ -6,37 +6,58 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/AngelFrieren/ccguard)](https://goreportcard.com/report/github.com/AngelFrieren/ccguard)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**ccguard** is a defensive file integrity monitor for Claude Code configuration
-files. It detects unauthorized modifications to `~/.claude/settings.json` and
-project-level `.claude/settings.json` — the files that control Claude Code
-hooks and can execute arbitrary shell commands.
+> Claude Code's `settings.json` can configure hooks that execute
+> arbitrary shell commands at session events. A silent edit to that
+> file is silent persistence on your machine. **ccguard watches for it.**
 
-This is a security tool in the same category as Tripwire, AIDE, and osquery —
-purely **detective**, never offensive.
+`ccguard` is a defensive, detective tool that monitors Claude Code's
+configuration and hook behavior for unauthorized modifications and
+policy-violating runtime behavior. It runs purely in userspace as a
+single static binary, in the spirit of Tripwire, AIDE, and osquery.
+
+This is a security tool — **purely detective, never offensive.**
 
 ## Quick start
 
 ```sh
-# Initialize baseline (approve current config as legitimate)
+# 1. Build
+git clone https://github.com/AngelFrieren/ccguard
+cd ccguard
+go build -o ccguard ./cmd/ccguard
+sudo install ccguard /usr/local/bin/
+
+# 2. Approve your current Claude Code config as the baseline
 ccguard init
 
-# (Recommended) Write default behavioral policies to your config directory.
-# Without this step, ccguard falls back to the built-in defaults automatically.
-# Run once to get an editable copy you can customise.
+# 3. Write the default behavioral policies (editable copy)
 ccguard policy init
 
-# Start monitoring (runs in foreground; use systemd unit for production)
+# 4. Start monitoring (use the systemd unit in examples/ for production)
 ccguard watch
+```
 
-# After an intentional config change, approve the new hash
+In a second terminal, simulate a tampered settings.json to see an
+alert:
+
+```sh
+echo "# tampered" >> ~/.claude/settings.json
+# the watch terminal now emits an ALERT with the new SHA-256
+```
+
+After legitimate edits, approve the new hash:
+
+```sh
 ccguard approve ~/.claude/settings.json
+```
 
-# Check current approval state without watching
-ccguard status
+Other useful commands:
 
-# Query the IOC database
-ccguard ioc list
-ccguard ioc check ~/.claude/settings.json
+```sh
+ccguard status           # show current approval state without watching
+ccguard ioc list         # list loaded threat indicators
+ccguard ioc check <path> # test a file against the IOC database
+ccguard baseline show    # show hook execution baseline stats
+ccguard behavior status  # show selected backend and recent events
 ```
 
 ## Installation
@@ -62,19 +83,33 @@ Phase 2 adds IOC matching: unapproved hashes and paths are also tested against
 a database of known-bad indicators. A match produces a higher-priority, named
 alert tied to a specific threat campaign.
 
-Phase 3 adds Layer 2 baseline anomaly detection via `ccguard hook-wrap`. When
-a Claude Code hook runs significantly slower than its historical baseline
-(z-score above a configurable threshold), ccguard emits a warning — detecting
-hooks that silently launch background exfiltration work without modifying
-`settings.json`. See [`docs/BASELINE.md`](docs/BASELINE.md) for setup.
+**Phase 3** adds Layer 2 statistical anomaly detection. Hook
+execution times are recorded via `ccguard hook-wrap`, a small
+wrapper that times the wrapped command and writes
+(name, duration_ms, exit_code) to SQLite. After a configurable
+minimum sample count (default 30), ccguard maintains a rolling
+mean+stddev per hook; future executions are flagged via z-score
+threshold (warn at 3.0, alert at 5.0 by default). This catches
+hooks whose contents are unchanged but whose behavior has been
+augmented with background work — e.g. a legitimate Stop hook
+that now also quietly exfiltrates the session log. See
+[docs/BASELINE.md](docs/BASELINE.md).
 
-Phase 4 adds Layer 4 behavioral monitoring. The watch daemon tracks the process
-tree spawned by `hook-wrap` and observes their syscalls (via procfs polling,
-auditd log tailing, or eBPF on supported kernels). Behavioral policies in
-`$XDG_CONFIG_HOME/ccguard/policies/` define which process actions trigger alerts
-— e.g. opening `/proc/*/mem`, executing credential tools, or connecting to
-unexpected hosts. See [`docs/BEHAVIOR.md`](docs/BEHAVIOR.md) and
-[`docs/POLICY_FORMAT.md`](docs/POLICY_FORMAT.md) for setup and policy authoring.
+**Phase 4** adds Layer 4 behavioral monitoring. ccguard tracks the
+process tree spawned by `hook-wrap` (notified via a 0600-mode Unix
+socket on `$XDG_RUNTIME_DIR/ccguard.sock`) and observes their
+syscalls. Three backends are auto-selected based on availability:
+
+- **procfs** (default): polls `/proc` every 100ms, no kernel
+  features required
+- **auditd**: subscribes to auditd execve events, requires root
+- **eBPF** (build tag `ebpf`): tracepoint-based, most accurate,
+  requires a kernel with BPF_LSM (Linux 5.10+ typically)
+
+YAML policies match on `(syscall, path_glob, command_basename_in,
+destination_not_in_allowlist)`. See
+[docs/BEHAVIOR.md](docs/BEHAVIOR.md) and
+[docs/POLICY_FORMAT.md](docs/POLICY_FORMAT.md).
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
@@ -105,4 +140,4 @@ not as public issues.
 
 ## License
 
-[MIT](LICENSE)
+Apache 2.0 — see [LICENSE](LICENSE).
